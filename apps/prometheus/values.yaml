@@ -1,212 +1,212 @@
-rbac:
-  create: true
-
-podSecurityPolicy:
-  enabled: false
-
-serviceAccounts:
-  server:
-    create: true
-    annotations: {}
-
-configmapReload:
-  prometheus:
-    enabled: true
-
-server:
-  env: []
-
-  ## Path to a configuration file on prometheus server container FS
-  configPath: /etc/config/prometheus.yml
-
-  global:
-    scrape_interval: 30s
-    scrape_timeout: 10s
-    evaluation_interval: 1m
-
-  ## Server Deployment Strategy type
-  strategy:
-    type: Recreate
-
-  persistentVolume:
-    enabled: true
-    accessModes:
-      - ReadWriteOnce
-
-    ## Prometheus server data Persistent Volume existing claim name
-    ## Requires server.persistentVolume.enabled: true
-    ## If defined, PVC must be created manually before volume will be bound
-    existingClaim: ""
-
-    ## Prometheus server data Persistent Volume mount root path
-    ##
-    mountPath: /data
-
-    ## Prometheus server data Persistent Volume size
-    ##
-    size: 8Gi
-
-  emptyDir:
-    ## Prometheus server emptyDir volume size limit
-    ##
-    sizeLimit: "8Gi"
-
-  ## Prometheus AlertManager configuration
-  ##
-  alertmanagers: []
-
-  ## Prometheus server readiness and liveness probe initial delay and timeout
-  ## Ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
-  ##
-  tcpSocketProbeEnabled: false
-  probeScheme: HTTP
-  readinessProbeInitialDelay: 30
-  readinessProbePeriodSeconds: 5
-  readinessProbeTimeout: 4
-  readinessProbeFailureThreshold: 3
-  readinessProbeSuccessThreshold: 1
-  livenessProbeInitialDelay: 30
-  livenessProbePeriodSeconds: 15
-  livenessProbeTimeout: 10
-  livenessProbeFailureThreshold: 3
-  livenessProbeSuccessThreshold: 1
-  startupProbe:
-    enabled: false
-    periodSeconds: 5
-    failureThreshold: 30
-    timeoutSeconds: 10
-
-  # Required for use in managed kubernetes clusters (such as AWS EKS) with custom CNI (such as calico),
-  # because control-plane managed by AWS cannot communicate with pods' IP CIDR and admission webhooks are not working
-  ##
-  hostNetwork: false
-
-  # When hostNetwork is enabled, this will set to ClusterFirstWithHostNet automatically
-  dnsPolicy: ClusterFirst
-
-  securityContext:
-    runAsUser: 65534
-    runAsNonRoot: true
-    runAsGroup: 65534
-    fsGroup: 65534
-
-  service:
-    enabled: true
-    type: NodePort
-
-  terminationGracePeriodSeconds: 300
-
-  retention: "15d"
-
-serverFiles:
-  alerting_rules.yml:
-    groups:
-      - name: "bbex http_2xx"
-        rules:
-          - alert: "bbex http_2xx"
-            expr: probe_http_status_code{job="bbex http_2xx"} != 200
-            for: 2m
-            labels:
-              severity: "critical"
-              env: "production"
-            annotations:
-              description: '{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 2 minutes.'
-              summary: "{{ $labels.instance }} did not return status code 200"
-              message: "HTTP status code {{ $value }}"
-          - alert: BlackboxSlowProbe
-            expr: avg_over_time(probe_http_duration_seconds{job="bbex http_2xx"}[1m]) > 1
-            for: 5m
-            labels:
-              severity: "warning"
-              env: "production"
-            annotations:
-              summary: "Blackbox slow probe (target {{ $labels.target }})"
-              message: "Blackbox probe took more than 1s to complete\n VALUE = {{ $value }}"
-      - name: "ssl-certs"
-        rules:
-          - alert: BlackboxSslCertificateWillExpireSoon
-            expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 30
-            for: 5m
-            labels:
-              severity: "warning"
-            annotations:
-              summary: "Blackbox SSL certificate will expire soon (instance {{ $labels.target }})"
-              message: "SSL certificate expires in 30 days\n VALUE = {{ $value }}"
-          - alert: BlackboxSslCertificateWillExpireSoon
-            expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 3
-            for: 5m
-            labels:
-              severity: "error"
-            annotations:
-              summary: "Blackbox SSL certificate will expire soon (instance {{ $labels.target }})"
-              message: "SSL certificate expires in 3 days\n VALUE = {{ $value }}"
-  prometheus.yml:
-    rule_files:
-      - /etc/config/recording_rules.yml
-      - /etc/config/alerting_rules.yml
-
-# adds additional scrape configs to prometheus.yml
-# must be a string so you have to add a | after extraScrapeConfigs:
-extraScrapeConfigs: |
-  - job_name: 'bbex http_2xx'
-    metrics_path: /probe
-    params:
-      module: [http_2xx]
-    static_configs:
-      - targets:
-        - https://www.discord.com
-        - https://www.github.com
-        - https://www.linkedin.com
-    relabel_configs:
-      - source_labels: [__address__]
-        target_label: __param_target
-      - source_labels: [__param_target]
-        target_label: instance
-      - target_label: __address__
-        replacement: blackbox-exporter-prometheus-blackbox-exporter:9115
-
-
-
-networkPolicy:
-  enabled: false
-
-alertmanager:
-  enabled: true
-
-  persistence:
-    size: 2Gi
-
-  podSecurityContext:
-    runAsUser: 65534
-    runAsNonRoot: true
-    runAsGroup: 65534
-    fsGroup: 65534
-
-  config:
-    global:
-      resolve_timeout: 5m
-    route:
-      group_by: ['instance',]
-      group_wait: 30s
-      group_interval: 5m
-      repeat_interval: 12h
-      receiver: 'Slack'
-      routes:
-        - match_re:
-            severity: '^(warning|critical)$'
-          receiver: 'Slack'
-    receivers:
-      - name: 'Slack'
-        slack_configs:
-          - send_resolved: true
-            webhook_url: 'https://discord.com/api/webhooks/1171168808715681822/9M8HkSLZWiZI3LgK3PLDdx-HH3L7Eu1N-WWjH_rs2Dbxxmxd_PL71YJ_BAWF8m-D1vir'
-
-#disabling of unused components
-kube-state-metrics:
-  enabled: false
-
-prometheus-node-exporter:
-  enabled: false
-
-prometheus-pushgateway:
-  enabled: false
+#rbac:
+#  create: true
+#
+#podSecurityPolicy:
+#  enabled: false
+#
+#serviceAccounts:
+#  server:
+#    create: true
+#    annotations: {}
+#
+#configmapReload:
+#  prometheus:
+#    enabled: true
+#
+#server:
+#  env: []
+#
+#  ## Path to a configuration file on prometheus server container FS
+#  configPath: /etc/config/prometheus.yml
+#
+#  global:
+#    scrape_interval: 30s
+#    scrape_timeout: 10s
+#    evaluation_interval: 1m
+#
+#  ## Server Deployment Strategy type
+#  strategy:
+#    type: Recreate
+#
+#  persistentVolume:
+#    enabled: true
+#    accessModes:
+#      - ReadWriteOnce
+#
+#    ## Prometheus server data Persistent Volume existing claim name
+#    ## Requires server.persistentVolume.enabled: true
+#    ## If defined, PVC must be created manually before volume will be bound
+#    existingClaim: ""
+#
+#    ## Prometheus server data Persistent Volume mount root path
+#    ##
+#    mountPath: /data
+#
+#    ## Prometheus server data Persistent Volume size
+#    ##
+#    size: 8Gi
+#
+#  emptyDir:
+#    ## Prometheus server emptyDir volume size limit
+#    ##
+#    sizeLimit: "8Gi"
+#
+#  ## Prometheus AlertManager configuration
+#  ##
+#  alertmanagers: []
+#
+#  ## Prometheus server readiness and liveness probe initial delay and timeout
+#  ## Ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+#  ##
+#  tcpSocketProbeEnabled: false
+#  probeScheme: HTTP
+#  readinessProbeInitialDelay: 30
+#  readinessProbePeriodSeconds: 5
+#  readinessProbeTimeout: 4
+#  readinessProbeFailureThreshold: 3
+#  readinessProbeSuccessThreshold: 1
+#  livenessProbeInitialDelay: 30
+#  livenessProbePeriodSeconds: 15
+#  livenessProbeTimeout: 10
+#  livenessProbeFailureThreshold: 3
+#  livenessProbeSuccessThreshold: 1
+#  startupProbe:
+#    enabled: false
+#    periodSeconds: 5
+#    failureThreshold: 30
+#    timeoutSeconds: 10
+#
+#  # Required for use in managed kubernetes clusters (such as AWS EKS) with custom CNI (such as calico),
+#  # because control-plane managed by AWS cannot communicate with pods' IP CIDR and admission webhooks are not working
+#  ##
+#  hostNetwork: false
+#
+#  # When hostNetwork is enabled, this will set to ClusterFirstWithHostNet automatically
+#  dnsPolicy: ClusterFirst
+#
+#  securityContext:
+#    runAsUser: 65534
+#    runAsNonRoot: true
+#    runAsGroup: 65534
+#    fsGroup: 65534
+#
+#  service:
+#    enabled: true
+#    type: NodePort
+#
+#  terminationGracePeriodSeconds: 300
+#
+#  retention: "15d"
+#
+#serverFiles:
+#  alerting_rules.yml:
+#    groups:
+#      - name: "bbex http_2xx"
+#        rules:
+#          - alert: "bbex http_2xx"
+#            expr: probe_http_status_code{job="bbex http_2xx"} != 200
+#            for: 2m
+#            labels:
+#              severity: "critical"
+#              env: "production"
+#            annotations:
+#              description: '{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 2 minutes.'
+#              summary: "{{ $labels.instance }} did not return status code 200"
+#              message: "HTTP status code {{ $value }}"
+#          - alert: BlackboxSlowProbe
+#            expr: avg_over_time(probe_http_duration_seconds{job="bbex http_2xx"}[1m]) > 1
+#            for: 5m
+#            labels:
+#              severity: "warning"
+#              env: "production"
+#            annotations:
+#              summary: "Blackbox slow probe (target {{ $labels.target }})"
+#              message: "Blackbox probe took more than 1s to complete\n VALUE = {{ $value }}"
+#      - name: "ssl-certs"
+#        rules:
+#          - alert: BlackboxSslCertificateWillExpireSoon
+#            expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 30
+#            for: 5m
+#            labels:
+#              severity: "warning"
+#            annotations:
+#              summary: "Blackbox SSL certificate will expire soon (instance {{ $labels.target }})"
+#              message: "SSL certificate expires in 30 days\n VALUE = {{ $value }}"
+#          - alert: BlackboxSslCertificateWillExpireSoon
+#            expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 3
+#            for: 5m
+#            labels:
+#              severity: "error"
+#            annotations:
+#              summary: "Blackbox SSL certificate will expire soon (instance {{ $labels.target }})"
+#              message: "SSL certificate expires in 3 days\n VALUE = {{ $value }}"
+#  prometheus.yml:
+#    rule_files:
+#      - /etc/config/recording_rules.yml
+#      - /etc/config/alerting_rules.yml
+#
+## adds additional scrape configs to prometheus.yml
+## must be a string so you have to add a | after extraScrapeConfigs:
+#extraScrapeConfigs: |
+#  - job_name: 'bbex http_2xx'
+#    metrics_path: /probe
+#    params:
+#      module: [http_2xx]
+#    static_configs:
+#      - targets:
+#        - https://www.discord.com
+#        - https://www.github.com
+#        - https://www.linkedin.com
+#    relabel_configs:
+#      - source_labels: [__address__]
+#        target_label: __param_target
+#      - source_labels: [__param_target]
+#        target_label: instance
+#      - target_label: __address__
+#        replacement: blackbox-exporter-prometheus-blackbox-exporter:9115
+#
+#
+#
+#networkPolicy:
+#  enabled: false
+#
+#alertmanager:
+#  enabled: true
+#
+#  persistence:
+#    size: 2Gi
+#
+#  podSecurityContext:
+#    runAsUser: 65534
+#    runAsNonRoot: true
+#    runAsGroup: 65534
+#    fsGroup: 65534
+#
+#  config:
+#    global:
+#      resolve_timeout: 5m
+#    route:
+#      group_by: ['instance',]
+#      group_wait: 30s
+#      group_interval: 5m
+#      repeat_interval: 12h
+#      receiver: 'Slack'
+#      routes:
+#        - match_re:
+#            severity: '^(warning|critical)$'
+#          receiver: 'Slack'
+#    receivers:
+#      - name: 'Slack'
+#        slack_configs:
+#          - send_resolved: true
+#            webhook_url: 'https://discord.com/api/webhooks/1171168808715681822/9M8HkSLZWiZI3LgK3PLDdx-HH3L7Eu1N-WWjH_rs2Dbxxmxd_PL71YJ_BAWF8m-D1vir'
+#
+##disabling of unused components
+#kube-state-metrics:
+#  enabled: false
+#
+#prometheus-node-exporter:
+#  enabled: false
+#
+#prometheus-pushgateway:
+#  enabled: false
