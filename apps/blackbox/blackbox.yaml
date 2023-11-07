@@ -18,7 +18,7 @@ spec:
   chart:
     spec:
       chart: prometheus-blackbox-exporter
-      verison: '8.4.0'
+      version: '8.4.0'
       reconcileStrategy: ChartVersion
       sourceRef:
         kind: HelmRepository
@@ -155,8 +155,7 @@ spec:
                 Blackbox probe took more than 1s to complete
                  VALUE = {{ $value }}
               summary: Blackbox slow probe (target {{ $labels.target }})
-            expr: avg_over_time(probe_http_duration_seconds{job="bbex http_2xx"}[1m])
-              > 1
+            expr: avg_over_time(probe_http_duration_seconds{job="bbex http_2xx"}[1m]) > 1
             for: 5m
             labels:
               env: production
@@ -168,8 +167,7 @@ spec:
               message: |-
                 SSL certificate expires in 30 days
                  VALUE = {{ $value }}
-              summary: Blackbox SSL certificate will expire soon (instance {{ $labels.target
-                }})
+              summary: Blackbox SSL certificate will expire soon (instance {{ $labels.target };})
             expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 30
             for: 5m
             labels:
@@ -179,8 +177,7 @@ spec:
               message: |-
                 SSL certificate expires in 3 days
                  VALUE = {{ $value }}
-              summary: Blackbox SSL certificate will expire soon (instance {{ $labels.target
-                }})
+              summary: Blackbox SSL certificate will expire soon (instance {{ $labels.target }})
             expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 3
             for: 5m
             labels:
