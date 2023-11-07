@@ -1,0 +1,195 @@
+apiVersion: v1
+kind: namespace
+metedata:
+  name: blackbox
+---
+apiVersion: source.toolkit.fluxcd.io/v1beta1
+kind: HelmRepository
+metadata:
+  name: blackbox
+  namespace: blackbox
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: blackbox
+  namespace: blackbox
+spec:
+  chart:
+    spec:
+      chart: prometheus-blackbox-exporter
+      verison: '8.4.0'
+      reconcileStrategy: ChartVersion
+      sourceRef:
+        kind: HelmRepository
+        name: blackbox
+  interval: 1m0s
+  values:
+    alertmanager:
+      config:
+        global:
+          resolve_timeout: 5m
+        receivers:
+        - name: Slack
+          slack_configs:
+          - send_resolved: true
+            webhook_url: https://discord.com/api/webhooks/1171168808715681822/9M8HkSLZWiZI3LgK3PLDdx-HH3L7Eu1N-WWjH_rs2Dbxxmxd_PL71YJ_BAWF8m-D1vir
+        route:
+          group_by:
+          - instance
+          group_interval: 5m
+          group_wait: 30s
+          receiver: Slack
+          repeat_interval: 12h
+          routes:
+          - match_re:
+              severity: ^(warning|critical)$
+            receiver: Slack
+      enabled: true
+      persistence:
+        size: 2Gi
+      podSecurityContext:
+        fsGroup: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+        runAsUser: 65534
+    configmapReload:
+      prometheus:
+        enabled: true
+    extraScrapeConfigs: |
+      - job_name: 'bbex http_2xx'
+        metrics_path: /probe
+        params:
+          module: [http_2xx]
+        static_configs:
+          - targets:
+            - https://www.discord.com
+            - https://www.github.com
+            - https://www.linkedin.com
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - source_labels: [__param_target]
+            target_label: instance
+          - target_label: __address__
+            replacement: blackbox-exporter-prometheus-blackbox-exporter:9115
+    kube-state-metrics:
+      enabled: false
+    networkPolicy:
+      enabled: false
+    podSecurityPolicy:
+      enabled: false
+    prometheus-node-exporter:
+      enabled: false
+    prometheus-pushgateway:
+      enabled: false
+    rbac:
+      create: true
+    server:
+      alertmanagers: []
+      configPath: /etc/config/prometheus.yml
+      dnsPolicy: ClusterFirst
+      emptyDir:
+        sizeLimit: 8Gi
+      env: []
+      global:
+        evaluation_interval: 1m
+        scrape_interval: 30s
+        scrape_timeout: 10s
+      hostNetwork: false
+      livenessProbeFailureThreshold: 3
+      livenessProbeInitialDelay: 30
+      livenessProbePeriodSeconds: 15
+      livenessProbeSuccessThreshold: 1
+      livenessProbeTimeout: 10
+      persistentVolume:
+        accessModes:
+        - ReadWriteOnce
+        enabled: true
+        existingClaim: ""
+        mountPath: /data
+        size: 8Gi
+      probeScheme: HTTP
+      readinessProbeFailureThreshold: 3
+      readinessProbeInitialDelay: 30
+      readinessProbePeriodSeconds: 5
+      readinessProbeSuccessThreshold: 1
+      readinessProbeTimeout: 4
+      retention: 15d
+      securityContext:
+        fsGroup: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+        runAsUser: 65534
+      service:
+        enabled: true
+        type: NodePort
+      startupProbe:
+        enabled: false
+        failureThreshold: 30
+        periodSeconds: 5
+        timeoutSeconds: 10
+      strategy:
+        type: Recreate
+      tcpSocketProbeEnabled: false
+      terminationGracePeriodSeconds: 300
+    serverFiles:
+      alerting_rules.yml:
+        groups:
+        - name: bbex http_2xx
+          rules:
+          - alert: bbex http_2xx
+            annotations:
+              description: '{{ $labels.instance }} of job {{ $labels.job }} has been
+                down for more than 2 minutes.'
+              message: HTTP status code {{ $value }}
+              summary: '{{ $labels.instance }} did not return status code 200'
+            expr: probe_http_status_code{job="bbex http_2xx"} != 200
+            for: 2m
+            labels:
+              env: production
+              severity: critical
+          - alert: BlackboxSlowProbe
+            annotations:
+              message: |-
+                Blackbox probe took more than 1s to complete
+                 VALUE = {{ $value }}
+              summary: Blackbox slow probe (target {{ $labels.target }})
+            expr: avg_over_time(probe_http_duration_seconds{job="bbex http_2xx"}[1m])
+              > 1
+            for: 5m
+            labels:
+              env: production
+              severity: warning
+        - name: ssl-certs
+          rules:
+          - alert: BlackboxSslCertificateWillExpireSoon
+            annotations:
+              message: |-
+                SSL certificate expires in 30 days
+                 VALUE = {{ $value }}
+              summary: Blackbox SSL certificate will expire soon (instance {{ $labels.target
+                }})
+            expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 30
+            for: 5m
+            labels:
+              severity: warning
+          - alert: BlackboxSslCertificateWillExpireSoon
+            annotations:
+              message: |-
+                SSL certificate expires in 3 days
+                 VALUE = {{ $value }}
+              summary: Blackbox SSL certificate will expire soon (instance {{ $labels.target
+                }})
+            expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 3
+            for: 5m
+            labels:
+              severity: error
+      prometheus.yml:
+        rule_files:
+        - /etc/config/recording_rules.yml
+        - /etc/config/alerting_rules.yml
+    serviceAccounts:
+      server:
+        annotations: {}
+        create: true
