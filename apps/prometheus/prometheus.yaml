@@ -32,10 +32,10 @@ spec:
     serverFiles:
       alerting_rules.yml:
         groups:
-          - name: "bbex http_2xx"
+          - name: "blackbox http_2xx"
             rules:
-            - alert: "bbex http_2xx"
-              expr: probe_http_status_code{job="bbex http_2xx"} != 200
+            - alert: "blackbox http_2xx"
+              expr: probe_http_status_code{job="blackbox http_2xx"} != 200
               for: 2m
               labels:
                 severity: "critical"
@@ -45,7 +45,7 @@ spec:
                 summary: "{{ $labels.instance }} did not return status code 200"
                 message: "HTTP status code {{ $value }}"
             - alert: BlackboxSlowProbe
-              expr: avg_over_time(probe_http_duration_seconds{job="bbex http_2xx"}[1m]) > 1
+              expr: avg_over_time(probe_http_duration_seconds{job="blackbox http_2xx"}[1m]) > 1
               for: 5m
               labels:
                 severity: "warning"
