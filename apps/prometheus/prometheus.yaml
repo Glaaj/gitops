@@ -107,7 +107,7 @@ spec:
         global:
           resolve_timeout: 5m
         route:
-          group_by: ['alertname', 'env']
+          group_by: ['instance',]
           group_wait: 30s
           group_interval: 5m
           repeat_interval: 12h
@@ -115,21 +115,7 @@ spec:
         receivers:
           - name: 'discord'
             discord_configs:
-              - channel: '#alerts'
-                send_resolved: true
-                title: '{{ template "discord.title" . }}'
-                text: '{{ template "discord.text" . }}'
-                icon_emoji: ':discord:'
-                icon_url: ''
-                username: 'Prometheus'
-                color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
-                actions:
-                  - type: button
-                    text: 'View in Prometheus'
-                    url: '{{ template "discord.prometheus" . }}'
-                  - type: button
-                    text: 'View in Alertmanager'
-                    url: '{{ template "discord.alertmanager" . }}'
+            - webhook_url: 'https://discord.com/api/webhooks/1171168808715681822/9M8HkSLZWiZI3LgK3PLDdx-HH3L7Eu1N-WWjH_rs2Dbxxmxd_PL71YJ_BAWF8m-D1vir'
         templates:
           - '/etc/alertmanager/*.tmpl'
       templates:
