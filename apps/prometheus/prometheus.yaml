@@ -28,3 +28,80 @@ spec:
         name: prometheus
         namespace: prometheus
       interval: 1m
+  values:
+    serverFiles:
+      alerting_rules.yml:
+        groups:
+        - name: "bbex http_2xx"
+          rules:
+            - alert: "bbex http_2xx"
+              expr: probe_http_status_code{job="bbex http_2xx"} != 200
+              for: 2m
+              labels:
+                severity: "critical"
+                env: "production"
+              annotations:
+                description: '{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 2 minutes.'
+                summary: "{{ $labels.instance }} did not return status code 200"
+                message: "HTTP status code {{ $value }}"
+            - alert: BlackboxSlowProbe
+              expr: avg_over_time(probe_http_duration_seconds{job="bbex http_2xx"}[1m]) > 1
+              for: 5m
+              labels:
+                severity: "warning"
+                env: "production"
+              annotations:
+                summary: "Blackbox slow probe (target {{ $labels.target }})"
+                message: "Blackbox probe took more than 1s to complete\n VALUE = {{ $value }}"
+        - name: "ssl-certs"
+          rules:
+            - alert: BlackboxSslCertificateWillExpireSoon
+              expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 30
+              for: 5m
+              labels:
+                severity: "warning"
+              annotations:
+                summary: "Blackbox SSL certificate will expire soon (instance {{ $labels.target }})"
+                message: "SSL certificate expires in 30 days\n VALUE = {{ $value }}"
+            - alert: BlackboxSslCertificateWillExpireSoon
+              expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 3
+              for: 5m
+              labels:
+                severity: "error"
+              annotations:
+                summary: "Blackbox SSL certificate will expire soon (instance {{ $labels.target }})"
+                message: "SSL certificate expires in 3 days\n VALUE = {{ $value }}"
+    alertmanager:
+      enabled: true
+      ingress:
+        enabled: false
+    server:
+      ingress:
+        enabled: false
+      global:
+        scrape_interval: 30s
+        scrape_timeout: 10s
+        evaluation_interval: 1m
+      extraScrapeConfigs: |
+        - job_name: 'blackbox'
+          metrics_path: /probe
+          params:
+            module: [http_2xx]
+          static_configs:
+            - targets:
+              - https://www.discord.com
+              - https://www.github.com
+              - https://www.linkedin.com
+          relabel_configs:
+            - source_labels: [__address__]
+              target_label: __param_target
+            - source_labels: [__param_target]
+              target_label: instance
+            - target_label: __address__
+              replacement: blackbox-exporter-prometheus-blackbox-exporter:9115
+    kubeStateMetrics:
+      enabled: false
+    nodeExporter:
+      enabled: false
+    pushgateway:
+      enabled: false
