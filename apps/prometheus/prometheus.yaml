@@ -55,15 +55,6 @@ spec:
                 message: "Blackbox probe took more than 1s to complete\n VALUE = {{ $value }}"
           - name: "ssl-certs"
             rules:
-            - alert: CertificateWillExpireWithinAYear
-              expr: probe_ssl_earliest_cert_expiry - time() > 86400 * 365
-              for: 5m
-              labels:
-                severity: "warning"
-              annotations:
-                summary: "Blackbox SSL certificate will expire soon (instance {{ $labels.target }})"
-                message: "SSL certificate expires in 365 days\n VALUE = {{ $value }}"
-
             - alert: BlackboxSslCertificateWillExpireSoon
               expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 30
               for: 5m
