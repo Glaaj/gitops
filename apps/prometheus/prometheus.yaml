@@ -199,10 +199,10 @@ spec:
             {{ define "discord.alertmanager" -}}
                 {{ .ExternalURL }}/#/alerts?receiver={{ template "__alert_silence_link" . }}
             {{- end }}
-  # disabling unused components
-  kube-state-metrics:
-    enabled: false
-  prometheus-node-exporter:
-    enabled: true
-  prometheus-pushgateway:
-    enabled: false
+    # disabling unused components
+    kube-state-metrics:
+      enabled: false
+    prometheus-node-exporter:
+      enabled: true
+    prometheus-pushgateway:
+      enabled: false
