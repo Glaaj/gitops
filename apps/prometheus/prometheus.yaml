@@ -32,8 +32,8 @@ spec:
     serverFiles:
       alerting_rules.yml:
         groups:
-        - name: "bbex http_2xx"
-          rules:
+          - name: "bbex http_2xx"
+            rules:
             - alert: "bbex http_2xx"
               expr: probe_http_status_code{job="bbex http_2xx"} != 200
               for: 2m
@@ -53,8 +53,8 @@ spec:
               annotations:
                 summary: "Blackbox slow probe (target {{ $labels.target }})"
                 message: "Blackbox probe took more than 1s to complete\n VALUE = {{ $value }}"
-        - name: "ssl-certs"
-          rules:
+          - name: "ssl-certs"
+            rules:
             - alert: BlackboxSslCertificateWillExpireSoon
               expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 30
               for: 5m
@@ -71,10 +71,10 @@ spec:
               annotations:
                 summary: "Blackbox SSL certificate will expire soon (instance {{ $labels.target }})"
                 message: "SSL certificate expires in 3 days\n VALUE = {{ $value }}"
-    alertmanager:
-      enabled: true
-      ingress:
-        enabled: false
+    prometheus.yml:
+      rule_files:
+        - /etc/config/alerting_rules.yml
+        - /etc/config/recording_rules.yml
     server:
       ingress:
         enabled: false
@@ -82,26 +82,140 @@ spec:
         scrape_interval: 30s
         scrape_timeout: 10s
         evaluation_interval: 1m
-      extraScrapeConfigs: |
-        - job_name: 'blackbox'
-          metrics_path: /probe
-          params:
-            module: [http_2xx]
-          static_configs:
-            - targets:
-              - https://www.discord.com
-              - https://www.github.com
-              - https://www.linkedin.com
-          relabel_configs:
-            - source_labels: [__address__]
-              target_label: __param_target
-            - source_labels: [__param_target]
-              target_label: instance
-            - target_label: __address__
-              replacement: blackbox-exporter-prometheus-blackbox-exporter:9115
-    kubeStateMetrics:
-      enabled: false
-    nodeExporter:
-      enabled: false
-    pushgateway:
-      enabled: false
+    extraScrapeConfigs: |
+      - job_name: 'blackbox'
+        metrics_path: /probe
+        params:
+          module: [http_2xx]
+        static_configs:
+          - targets:
+            - https://www.discord.com
+            - https://www.github.com
+            - https://www.linkedin.com
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - source_labels: [__param_target]
+            target_label: instance
+          - target_label: __address__
+            replacement: blackbox-exporter-prometheus-blackbox-exporter:9115
+    alertmanager:
+      enabled: true
+      ingress:
+        enabled: false
+      config:
+        global:
+          resolve_timeout: 5m
+        route:
+          group_by: ['alertname', 'env']
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 12h
+          receiver: 'discord'
+        receivers:
+          - name: 'discord'
+            discord_configs:
+              - channel: '#alerts'
+                send_resolved: true
+                title: '{{ template "discord.title" . }}'
+                text: '{{ template "discord.text" . }}'
+                icon_emoji: ':discord:'
+                icon_url: ''
+                username: 'Prometheus'
+                color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+                actions:
+                  - type: button
+                    text: 'View in Prometheus'
+                    url: '{{ template "discord.prometheus" . }}'
+                  - type: button
+                    text: 'View in Alertmanager'
+                    url: '{{ template "discord.alertmanager" . }}'
+        templates:
+          - '/etc/alertmanager/*.tmpl'
+      templates:
+        discord.tmpl: |-
+          {{/* Alertmanager Silence link */}}
+          {{ define "__alert_silence_link" -}}
+              {{ .ExternalURL }}/#/silences/new?filter=%7B
+              {{- range .CommonLabels.SortedPairs -}}
+                  {{- if ne .Name "alertname" -}}
+                      {{- .Name }}%3D"{{- .Value -}}"%2C%20
+                  {{- end -}}
+              {{- end -}}
+              alertname%3D"{{- .CommonLabels.alertname -}}"%7D
+          {{- end }}
+
+          {{/* Severity of the alert */}}
+          {{ define "__alert_severity" -}}
+              {{- if eq .CommonLabels.severity "critical" -}}
+              *Severity:* `Critical`
+              {{- else if eq .CommonLabels.severity "warning" -}}
+              *Severity:* `Warning`
+              {{- else if eq .CommonLabels.severity "info" -}}
+              *Severity:* `Info`
+              {{- else -}}
+              *Severity:* :question: {{ .CommonLabels.severity }}
+              {{- end }}
+          {{- end }}
+
+          {{/* Title of the discord alert */}}
+          {{ define "discord.title" -}}
+            [{{ .Status | toUpper -}}
+            {{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{- end -}}
+            ] {{ .CommonLabels.alertname }}
+          {{- end }}
+
+          {{/* Color of discord attachment (appears as line next to alert )*/}}
+          {{ define "discord.color" -}}
+              {{ if eq .Status "firing" -}}
+                  {{ if eq .CommonLabels.severity "warning" -}}
+                      warning
+                  {{- else if eq .CommonLabels.severity "critical" -}}
+                      danger
+                  {{- else if eq .CommonLabels.severity "error" -}}
+                      error
+                  {{- else -}}
+                      #439FE0
+                  {{- end -}}
+              {{ else -}}
+              good
+              {{- end }}
+          {{- end }}
+
+          {{/* The text to display in the alert */}}
+          {{ define "discord.text" -}}
+              {{ template "__alert_severity" . }}
+              {{- if (index .Alerts 0).Annotations.summary }}
+              {{- "\n" -}}
+              *Summary:* {{ (index .Alerts 0).Annotations.summary }}
+              {{- end }}
+              {{ range .Alerts }}
+                  {{- if .Annotations.description }}
+                  {{- "\n" -}}
+                  {{ .Annotations.description }}
+                  {{- "\n" -}}
+                  {{- end }}
+                  {{- if .Annotations.message }}
+                  {{- "\n" -}}
+                  {{ .Annotations.message }}
+                  {{- "\n" -}}
+                  {{- end }}
+              {{- end }}
+          {{- end }}
+
+            {{/* The Prometheus link to the alert */}}
+            {{ define "discord.prometheus" -}}
+                {{ .ExternalURL }}/#/alerts?receiver={{ template "__alert_silence_link" . }}
+            {{- end }}
+
+            {{/* The Alertmanager link to the alert */}}
+            {{ define "discord.alertmanager" -}}
+                {{ .ExternalURL }}/#/alerts?receiver={{ template "__alert_silence_link" . }}
+            {{- end }}
+  # disabling unused components
+  kube-state-metrics:
+    enabled: false
+  prometheus-node-exporter:
+    enabled: true
+  prometheus-pushgateway:
+    enabled: false
